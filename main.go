@@ -114,6 +114,7 @@ func channelsListByUsername(service *youtube.Service, part []string, forUsername
 func getChannelIdsForUserSubscriptions(service *youtube.Service, part []string) []string {
 	call := service.Subscriptions.List(part)
 	call = call.Mine(true)
+	call = call.MaxResults(50)
 
 	response, err := call.Do()
 	handleError(err, "")
