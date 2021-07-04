@@ -159,7 +159,11 @@ func main() {
 	err := godotenv.Load(".env")
 
 	if err != nil {
-		handleError(err, "")
+		_, tokenFound := os.LookupEnv("YT_BOT_DISCORD_TOKEN")
+		_, channelIdFound := os.LookupEnv("YT_BOT_DISCORD_CHANNELID")
+		if !tokenFound || !channelIdFound {
+			handleError(err, "")
+		}
 	}
 
 	fmt.Println(os.Getenv("YT_BOT_DISCORD_TOKEN"))
