@@ -11,7 +11,9 @@ import (
 	"os/user"
 	"path/filepath"
 	"sort"
+	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"google.golang.org/api/youtube/v3"
 
 	"golang.org/x/net/context"
@@ -108,7 +110,7 @@ func channelsListByUsername(service *youtube.Service, part []string, forUsername
 		response.Items[0].Statistics.ViewCount))
 }
 
-func getUsersChannelSubscriptions(service *youtube.Service, part []string) {
+func getChannelIdsForUserSubscriptions(service *youtube.Service, part []string) []string {
 	call := service.Subscriptions.List(part)
 	call = call.Mine(true)
 
@@ -118,46 +120,47 @@ func getUsersChannelSubscriptions(service *youtube.Service, part []string) {
 	channelIds := make([]string, 0)
 
 	for _, item := range response.Items {
-		fmt.Println(fmt.Sprintf("The first subscription is id: %s, name: %s", item.Id, item.Snippet.Title))
-		fmt.Println(item.Snippet.ResourceId.ChannelId)
-
 		channelIds = append(channelIds, item.Snippet.ResourceId.ChannelId)
 	}
 
-	for _, channelId := range channelIds {
-		fmt.Println(fmt.Sprintf("Channel id: %s", channelId))
-		getChannelCall := service.Channels.List(part)
-		getChannelCall = getChannelCall.Id(channelId)
+	return channelIds
+}
 
-		getChannelResponse, err := getChannelCall.Do()
-		handleError(err, "")
+func getUploadsForChannel(service *youtube.Service, part []string, channelId string) []*youtube.PlaylistItem {
+	fmt.Println(fmt.Sprintf("Channel id: %s", channelId))
+	getChannelCall := service.Channels.List(part)
+	getChannelCall = getChannelCall.Id(channelId)
 
-		// uploadPlaylistId := getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads
+	getChannelResponse, err := getChannelCall.Do()
+	handleError(err, "")
 
-		fmt.Println(fmt.Sprintf("The id of the upload playlist: %s", getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads))
-		getUploadsCall := service.PlaylistItems.List(part)
-		getUploadsCall = getUploadsCall.PlaylistId(getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads)
+	fmt.Println(fmt.Sprintf("The id of the upload playlist: %s", getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads))
+	getUploadsCall := service.PlaylistItems.List(part)
+	getUploadsCall = getUploadsCall.PlaylistId(getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads)
 
-		getUploadsResponse, err := getUploadsCall.Do()
-		handleError(err, "")
+	getUploadsResponse, err := getUploadsCall.Do()
+	handleError(err, "")
 
-		for _, upload := range getUploadsResponse.Items {
-			fmt.Println(fmt.Sprintf("The upload id: %s, tittle: %s", upload.Id, upload.Snippet.Title))
-		}
+	sort.Slice(getUploadsResponse.Items, func(a, b int) bool {
+		return getUploadsResponse.Items[a].Snippet.PublishedAt > getUploadsResponse.Items[b].Snippet.PublishedAt
+	})
 
-		sort.Slice(getUploadsResponse.Items, func(a, b int) bool {
-			return getUploadsResponse.Items[a].Snippet.PublishedAt > getUploadsResponse.Items[b].Snippet.PublishedAt
-		})
+	// for _, upload := range getUploadsResponse.Items {
+	// 	// fmt.Println(fmt.Sprintf("The upload id: %s, tittle: %s, publish time: %s", upload.Id, upload.Snippet.Title, upload.Snippet.PublishedAt))
+	// }
 
-		for _, upload := range getUploadsResponse.Items {
-			fmt.Println(fmt.Sprintf("The upload id: %s, tittle: %s", upload.Id, upload.Snippet.Title))
-		}
-	}
-
+	return getUploadsResponse.Items
 }
 
 func main() {
 	fmt.Println("Hi")
+
+	fmt.Println(os.Getenv("YT_BOT_DISCORD_TOKEN"))
+	fmt.Println(os.Getenv("YT_BOT_DISCORD_CHANNELID"))
+	db, err := discordgo.New("Bot " + os.Getenv("YT_BOT_DISCORD_TOKEN"))
+	db.Open()
+
+	db.ChannelMessageSend(os.Getenv("YT_BOT_DISCORD_CHANNELID"), "I'm heeeerree!")
 
 	ctx := context.Background()
 
@@ -176,11 +179,38 @@ func main() {
 
 	handleError(err, "Error creating YouTube client")
 
-	part := []string{"snippet", "contentDetails", "statistics"}
-	channelsListByUsername(service, part, "GoogleDevelopers")
+	part := []string{"snippet", "contentDetails"}
+	// channelsListByUsername(service, part, "GoogleDevelopers")
 
-	// for true {
-	getUsersChannelSubscriptions(service, []string{"snippet", "contentDetails"})
-	// time.Sleep(10 * time.Second)
-	// }
+	lastPostedUploads := make(map[string]string)
+
+	for true {
+		channels := getChannelIdsForUserSubscriptions(service, []string{"snippet", "contentDetails"})
+		for _, channelId := range channels {
+			uploads := getUploadsForChannel(service, part, channelId)
+
+			if lastPostedUploads[channelId] != "" {
+				uploadsToPublish := make([]*youtube.PlaylistItem, 0)
+				for _, upload := range uploads {
+					if upload.Snippet.PublishedAt > lastPostedUploads[channelId] {
+						uploadsToPublish = append(uploadsToPublish, upload)
+					}
+				}
+
+				if len(uploadsToPublish) == 0 {
+					fmt.Println("No new uploads")
+				} else {
+					for _, upload := range uploadsToPublish {
+						fmt.Println(fmt.Sprintf("Do thing that publishes link. Id: %s", upload.Snippet.ResourceId.VideoId))
+						db.ChannelMessageSend(os.Getenv("YT_BOT_DISCORD_CHANNELID"), "https://youtube.com/watch?v="+upload.Snippet.ResourceId.VideoId)
+					}
+				}
+			} else {
+				fmt.Println("No Previous posts. Will record from this point on.")
+			}
+			lastPostedUploads[channelId] = uploads[0].Snippet.PublishedAt
+
+			time.Sleep(10 * time.Second)
+		}
+	}
 }
