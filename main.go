@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 
 	"google.golang.org/api/youtube/v3"
 
@@ -107,6 +108,54 @@ func channelsListByUsername(service *youtube.Service, part []string, forUsername
 		response.Items[0].Statistics.ViewCount))
 }
 
+func getUsersChannelSubscriptions(service *youtube.Service, part []string) {
+	call := service.Subscriptions.List(part)
+	call = call.Mine(true)
+
+	response, err := call.Do()
+	handleError(err, "")
+
+	channelIds := make([]string, 0)
+
+	for _, item := range response.Items {
+		fmt.Println(fmt.Sprintf("The first subscription is id: %s, name: %s", item.Id, item.Snippet.Title))
+		fmt.Println(item.Snippet.ResourceId.ChannelId)
+
+		channelIds = append(channelIds, item.Snippet.ResourceId.ChannelId)
+	}
+
+	for _, channelId := range channelIds {
+		fmt.Println(fmt.Sprintf("Channel id: %s", channelId))
+		getChannelCall := service.Channels.List(part)
+		getChannelCall = getChannelCall.Id(channelId)
+
+		getChannelResponse, err := getChannelCall.Do()
+		handleError(err, "")
+
+		// uploadPlaylistId := getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads
+
+		fmt.Println(fmt.Sprintf("The id of the upload playlist: %s", getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads))
+		getUploadsCall := service.PlaylistItems.List(part)
+		getUploadsCall = getUploadsCall.PlaylistId(getChannelResponse.Items[0].ContentDetails.RelatedPlaylists.Uploads)
+
+		getUploadsResponse, err := getUploadsCall.Do()
+		handleError(err, "")
+
+		for _, upload := range getUploadsResponse.Items {
+			fmt.Println(fmt.Sprintf("The upload id: %s, tittle: %s", upload.Id, upload.Snippet.Title))
+		}
+
+		sort.Slice(getUploadsResponse.Items, func(a, b int) bool {
+			return getUploadsResponse.Items[a].Snippet.PublishedAt > getUploadsResponse.Items[b].Snippet.PublishedAt
+		})
+
+		for _, upload := range getUploadsResponse.Items {
+			fmt.Println(fmt.Sprintf("The upload id: %s, tittle: %s", upload.Id, upload.Snippet.Title))
+		}
+	}
+
+}
+
 func main() {
 	fmt.Println("Hi")
 
@@ -129,4 +178,9 @@ func main() {
 
 	part := []string{"snippet", "contentDetails", "statistics"}
 	channelsListByUsername(service, part, "GoogleDevelopers")
+
+	// for true {
+	getUsersChannelSubscriptions(service, []string{"snippet", "contentDetails"})
+	// time.Sleep(10 * time.Second)
+	// }
 }
