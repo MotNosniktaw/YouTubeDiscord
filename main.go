@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/joho/godotenv"
 	"google.golang.org/api/youtube/v3"
 
 	"golang.org/x/net/context"
@@ -154,6 +155,11 @@ func getUploadsForChannel(service *youtube.Service, part []string, channelId str
 
 func main() {
 	fmt.Println("Hi")
+	err := godotenv.Load(".env")
+
+	if err != nil {
+		handleError(err, "")
+	}
 
 	fmt.Println(os.Getenv("YT_BOT_DISCORD_TOKEN"))
 	fmt.Println(os.Getenv("YT_BOT_DISCORD_CHANNELID"))
